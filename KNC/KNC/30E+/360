@@ -1,0 +1,94 @@
+def est_bissextile(a):
+    """Bis(A) ⟺ (4|A) ∧ (100∤A ∨ 400|A)"""
+    return (a % 4 == 0) and (a % 100 != 0 or a % 400 == 0)
+
+def fin_fevrier(a):
+    return 29 if est_bissextile(a) else 28
+
+def jours_max(m, a):
+    if m == 2:   return fin_fevrier(a)
+    elif m in [4,6,9,11]: return 30
+    else:        return 31
+
+def valider_date(d, m, a, label="Date"):
+    """Lève ValueError si date calendaire invalide."""
+    if not (1 <= m <= 12):
+        raise ValueError(f"{label} : mois {m} invalide (1-12).")
+    max_j = jours_max(m, a)
+    if not (1 <= d <= max_j):
+        if m == 2:
+            statut = "bissextile" if est_bissextile(a) else "non bissextile"
+            raise ValueError(
+                f"{label} : annee {a} est {statut} -> "
+                f"fevrier a {max_j} jours. "
+                f"Veuillez saisir un jour <= {max_j} (saisi : {d})."
+            )
+        else:
+            raise ValueError(
+                f"{label} : mois {m}/{a} a {max_j} jours max (saisi : {d})."
+            )
+
+def ajuster_30eplus(d1r, m1, a1, d2r, m2, a2):
+    """
+    Ajustement 30E+/360 (ISDA) :
+      D1 = 31  → D1* = 30        (février inchangé)
+      D2 = 31  → D2* = 1, M2 avance d'un mois
+                 Si M2=12 → M2*=1, A2*=A2+1
+    """
+    # ── D1 ──
+    d1, r1 = d1r, ""
+    if d1r == 31:
+        d1, r1 = 30, "31→30"
+
+    # ── D2 ──
+    d2, m2_adj, a2_adj, r2 = d2r, m2, a2, ""
+    if d2r == 31:
+        d2 = 1
+        if m2 == 12:
+            m2_adj, a2_adj = 1, a2 + 1
+        else:
+            m2_adj = m2 + 1
+        r2 = f"31→01/{m2_adj:02d}/{a2_adj}"
+
+    return d1, m1, a1, d2, m2_adj, a2_adj, r1, r2
+
+def delta_m_signe(m1, a1, m2, a2):
+    """ΔM = Max(0, (M2-M1) + 12(A2-A1) - 1·𝟏≠)  —  O(1)"""
+    memes = (m1 == m2 and a1 == a2)
+    raw = (m2 - m1) + 12 * (a2 - a1) - (0 if memes else 1)
+    return max(0, raw)
+
+def knc_30eplus_360(d1r, m1, a1, d2r, m2, a2):
+    """
+    KNC/30E+/360 — KOFFI N'GUESSAN CONFIANCE
+    n = α + 30·ΔM + (D2* - D1*)   Complexité : O(1)
+    D2=31 → reporté au 1er du mois suivant (avance d'an si décembre).
+    """
+    valider_date(d1r, m1, a1, "Date de debut")
+    valider_date(d2r, m2, a2, "Date de fin")
+
+    d1, m1, a1, d2, m2e, a2e, r1, r2 = ajuster_30eplus(
+        d1r, m1, a1, d2r, m2, a2)
+
+    alpha   = 0 if (m1 == m2e and a1 == a2e) else 30
+    delta_m = delta_m_signe(m1, a1, m2e, a2e)
+    n       = alpha + 30 * delta_m + (d2 - d1)
+
+    return {
+        "n": n, "alpha": alpha, "delta_m": delta_m,
+        "d1_star": d1, "d2_star": d2,
+        "m2_adj": m2e, "a2_adj": a2e,
+        "adj1": r1, "adj2": r2,
+        "n_sur_360": n / 360
+    }
+
+# ── Exemple ─────────────────────────────────────────────────
+# 30/08/2024 → 31/12/2033  (D2=31 dec → 01/01/2034)
+res     = knc_30eplus_360(30, 8, 2024, 31, 12, 2033)
+n_val   = res["n"]
+frac    = res["n_sur_360"]
+m2a     = res["m2_adj"]
+a2a     = res["a2_adj"]
+print(f"D2 ajuste : 01/{m2a:02d}/{a2a}")
+print(f"n       = {n_val} jours")
+print(f"n/360   = {frac:.6f}")
