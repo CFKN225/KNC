@@ -1,0 +1,92 @@
+def est_bissextile(a):
+    """Prédicat grégorien exact : Bis(A) ⟺ (4|A) ∧ (100∤A ∨ 400|A)"""
+    return (a % 4 == 0) and (a % 100 != 0 or a % 400 == 0)
+
+def fin_fevrier(a):
+    return 29 if est_bissextile(a) else 28
+
+def ajuster_nasd(d1, m1, a1, d2, m2, a2):
+    """Règles d'ajustement 30/360 NASD"""
+    # Ajuster D1
+    r1 = ""
+    if d1 == 31:
+        d1, r1 = 30, "31→30"
+    elif m1 == 2 and d1 == fin_fevrier(a1):
+        d1, r1 = 30, f"{fin_fevrier(a1)} fév→30"
+    # Ajuster D2
+    r2 = ""
+    if d2 == 31:
+        d2, r2 = 30, "31→30"
+    elif m2 == 2 and d2 == fin_fevrier(a2):
+        d2, r2 = 30, f"{fin_fevrier(a2)} fév→30"
+    return d1, m1, a1, d2, m2, a2, r1, r2
+
+def jours_max(m, a):
+    """Retourne le nombre de jours max du mois m de l'année a."""
+    if m == 2:
+        return fin_fevrier(a)
+    elif m in [4, 6, 9, 11]:
+        return 30
+    else:
+        return 31
+
+def valider_date(d, m, a, label="Date"):
+    """
+    Valide une date calendaire.
+    Lève ValueError avec message explicite si invalide.
+    """
+    if not (1 <= m <= 12):
+        raise ValueError(f"{label} : mois {m} invalide (doit être entre 1 et 12).")
+    max_j = jours_max(m, a)
+    if not (1 <= d <= max_j):
+        bis = est_bissextile(a)
+        if m == 2:
+            statut = "bissextile" if bis else "non bissextile"
+            raise ValueError(
+                f"{label} : année {a} est {statut} → "
+                f"février a {max_j} jours. "
+                f"Veuillez saisir un jour ≤ {max_j} (saisi : {d})."
+            )
+        else:
+            raise ValueError(
+                f"{label} : le mois {m}/{a} a {max_j} jours max "
+                f"(saisi : {d})."
+            )
+
+def delta_m_signe(m1, a1, m2, a2):
+    """ΔM — forme fermée O(1)"""
+    memes = (m1 == m2 and a1 == a2)
+    raw = (m2 - m1) + 12 * (a2 - a1) - (0 if memes else 1)
+    return max(0, raw)
+
+def knc_30e_360(d1r, m1, a1, d2r, m2, a2):
+    """
+    Algorithme KNC/30/360 — KOFFI N'GUESSAN CONFIANCE
+    n = α + 30·ΔM + (D2* - D1*)   Complexité : O(1)
+    """
+    # ── Validation ──────────────────────────────────────────
+    valider_date(d1r, m1, a1, "Date de début")
+    valider_date(d2r, m2, a2, "Date de fin")
+    # ── Calcul ──────────────────────────────────────────────
+    d1, m1, a1, d2, m2, a2, r1, r2 = ajuster_nasd(d1r, m1, a1, d2r, m2, a2)
+    alpha   = 0 if (m1 == m2 and a1 == a2) else 30
+    delta_m = delta_m_signe(m1, a1, m2, a2)
+    n = alpha + 30 * delta_m + (d2 - d1)
+    return {
+        "n": n, "alpha": alpha, "delta_m": delta_m,
+        "d1_star": d1, "d2_star": d2,
+        "adj1": r1, "adj2": r2,
+        "n_sur_360": n / 360
+    }
+
+# ── Tests ────────────────────────────────────────────────────
+try:
+    # Cas valide
+    res = knc_30e_360(31, 8, 2024, 5, 10, 2024)
+    print(f"n = {res['n']} jours  |  n/360 = {res['n_sur_360']:.6f}")
+
+    # Cas invalide : 30 février 1900 (non bissextile → max 28)
+    knc_30e_360(30, 2, 1900, 1, 3, 1900)
+
+except ValueError as e:
+    print(f"ERREUR : {e}")
